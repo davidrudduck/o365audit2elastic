@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-script_version = "1.4.1"
+script_version = "1.4.3"
 
 # Debug settings - only debug first record even in debug mode
 debug_first_record_only = True
