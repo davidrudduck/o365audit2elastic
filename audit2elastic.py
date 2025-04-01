@@ -33,10 +33,10 @@ import sys, os, csv, json, re, dateutil.parser, pprint
 warnings.filterwarnings("ignore", category=UserWarning, module="elasticsearch.connection")
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
-parser = ArgumentParser(prog='audit2elastic', description='Push Office 365 audit logs to ElasticSearch')
+parser = ArgumentParser(prog='audit2elastic', description='Push Microsoft 365 audit logs to ElasticSearch')
 
 parser.add_argument('--server', '-s', dest='elastic_server', action='store', default=os.environ.get('ES_HOSTS', 'http://127.0.0.1:9200'), help='ElasticSearch server(s)')
-parser.add_argument('--index',  '-i', dest='elastic_index',  action='store', default='o365-%s' % hex(abs(hash(json.dumps(sys.argv[1:]))))[2:10], help='ElasticSearch index name')
+parser.add_argument('--index',  '-i', dest='elastic_index',  action='store', default='m365-%s' % hex(abs(hash(json.dumps(sys.argv[1:]))))[2:10], help='ElasticSearch index name')
 parser.add_argument('--api-key', '-k', dest='api_key', action='store', help='ElasticSearch API key for authentication')
 parser.add_argument('--field-mapping', '-m', dest='field_mapping_file', action='store', help='Path to field mapping JSON file for condensing fields')
 parser.add_argument('--ignore-ssl', dest='ignore_ssl', action='store_true', help='Ignore SSL certificate verification (use with caution)')
