@@ -1,0 +1,66 @@
+{
+  "rename": {
+    "ClientIPAddress": "ClientIP",
+    "IpAddress": "ClientIP",
+    "SenderIp": "ClientIP",
+    "ActorIpAddress": "ClientIP",
+    "FromIp": "ClientIP",
+    "Item.Id": "GenericItemId",
+    "ListId": "GenericItemId",
+    "Item.Subject": "GenericSubject",
+    "ListTitle": "GenericSubject",
+    "Title": "GenericSubject"
+  },
+  "merge": {
+    "GenericId": ["Id", "SessionId", "ClientRequestId"],
+    "GenericSubject": ["Item.Subject", "Subject", "Title", "ListTitle"],
+    "GenericUser": ["UserId", "Username", "MailboxOwnerUPN", "AccessedBy"]
+  },
+  "ignore": [
+    "ResultIndex",
+    "ResultCount",
+    "IsValid",
+    "ObjectState",
+    "ClientRequestId",
+    "OriginatingServer"
+  ],
+  "conditional": [
+    {
+      "condition": {
+        "field": "RecordType",
+        "value": "ExchangeItem"
+      },
+      "rename": {
+        "Item.Id": "GenericItemId",
+        "Item.Subject": "GenericSubject",
+        "Item.ParentFolder.Path": "ItemLocation"
+      },
+      "ignore": [
+        "Item.ImmutableId",
+        "Item.InternetMessageId"
+      ]
+    },
+    {
+      "condition": {
+        "field": "Workload",
+        "value": "SharePoint"
+      },
+      "rename": {
+        "ListId": "GenericItemId",
+        "ListTitle": "GenericSubject",
+        "SiteUrl": "ItemLocation"
+      }
+    },
+    {
+      "condition": {
+        "field": "Workload",
+        "value": "OneDrive"
+      },
+      "rename": {
+        "ObjectId": "GenericItemId",
+        "SourceFileName": "GenericSubject",
+        "SourceRelativeUrl": "ItemLocation"
+      }
+    }
+  ]
+}

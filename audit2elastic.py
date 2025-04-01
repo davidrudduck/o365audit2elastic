@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
 
-script_version = "1.4.3"
+script_version = "1.4.4"
 
 # Debug settings - only debug first record even in debug mode
 debug_first_record_only = True
 
 print("""
-#################################################################
-#                                                               #
-#     ▄▀█ █░█ █▀▄ █ ▀█▀                                         #
-#     █▀█ █▄█ █▄▀ █ ░█░                                         #
-#                                                               #
-#                    ▀█                                         #
-#                    █▄                                         #
-#                                                               #
-#     █▀▀ █░░ ▄▀█ █▀ ▀█▀ █ █▀▀ █▀ █▀▀ ▄▀█ █▀█ █▀▀ █░█           #
-#     ██▄ █▄▄ █▀█ ▄█ ░█░ █ █▄▄ ▄█ ██▄ █▀█ █▀▄ █▄▄ █▀█           #
-#                                                               #
-#                      Version: {0}                           #
-#                                                               #
-#################################################################
+  __  __ ___ ___ ___  ___  ___  ___  ___ _____   ____  __ ___ 
+ |  \/  |_ _/ __| _ \/ _ \/ __|/ _ \| __|_   _| |__ / / /| __|
+ | |\/| || | (__|   / (_) \__ \ (_) | _|  | |    |_ \/ _ \__ \
+ |_|  |_|___\___|_|_\\___/|___/\___/|_|   |_|   |___/\___/___/
+                                                              
+  _    ___   ___ ___   ___   ___ _      _   ___ _____ ___ ___ 
+ | |  / _ \ / __/ __| |_  ) | __| |    /_\ / __|_   _|_ _/ __|
+ | |_| (_) | (_ \__ \  / /  | _|| |__ / _ \\__ \ | |  | | (__ 
+ |____\___/ \___|___/ /___| |___|____/_/ \_\___/ |_| |___\___|
+                                                              
+                          Version: {0}
 """.format(script_version))
 
 from argparse import ArgumentParser, REMAINDER
@@ -41,6 +38,7 @@ parser = ArgumentParser(prog='audit2elastic', description='Push Office 365 audit
 parser.add_argument('--server', '-s', dest='elastic_server', action='store', default=os.environ.get('ES_HOSTS', 'http://127.0.0.1:9200'), help='ElasticSearch server(s)')
 parser.add_argument('--index',  '-i', dest='elastic_index',  action='store', default='o365-%s' % hex(abs(hash(json.dumps(sys.argv[1:]))))[2:10], help='ElasticSearch index name')
 parser.add_argument('--api-key', '-k', dest='api_key', action='store', help='ElasticSearch API key for authentication')
+parser.add_argument('--field-mapping', '-m', dest='field_mapping_file', action='store', help='Path to field mapping JSON file for condensing fields')
 parser.add_argument('--ignore-ssl', dest='ignore_ssl', action='store_true', help='Ignore SSL certificate verification (use with caution)')
 parser.add_argument('--skip-test', dest='skip_test', action='store_true', help='Skip Elasticsearch connection test')
 parser.add_argument('--timeout', '-t', dest='timeout', action='store', type=int, default=60, help='Elasticsearch operation timeout in seconds (default: 60)')
@@ -76,6 +74,19 @@ if args.continue_on_error:
     print("Will continue processing despite indexing errors")
 if args.append_mode:
     print("Append mode enabled (will add to existing index if it exists)")
+if args.field_mapping_file:
+    print(f"Using field mapping file: {args.field_mapping_file}")
+    
+# Load field mapping file if provided
+field_mappings = {}
+if args.field_mapping_file:
+    try:
+        with open(args.field_mapping_file) as f:
+            field_mappings = json.load(f)
+        print(f"Loaded field mapping with {len(field_mappings)} mapping types")
+    except Exception as e:
+        print(f"WARNING: Failed to load field mapping file: {str(e)}")
+        print("Will proceed without field mapping")
 
 # Test Elasticsearch connection and authentication if not skipped
 if not args.skip_test:
@@ -376,8 +387,76 @@ def convert_field_types(record):
             if field != 'ClientIP' and field in record:
                 del record[field]
     
-    # Keep all fields, including RecordType
+    # Apply field mappings if provided
+    if args.field_mapping_file and field_mappings:
+        # Apply simple renames
+        if 'rename' in field_mappings:
+            for old_field, new_field in field_mappings['rename'].items():
+                if old_field in record:
+                    if args.debug_mode:
+                        print(f"DEBUG - Renaming field: {old_field} -> {new_field}")
+                    record[new_field] = record[old_field]
+                    del record[old_field]
+        
+        # Apply merges
+        if 'merge' in field_mappings:
+            for target_field, source_fields in field_mappings['merge'].items():
+                for source_field in source_fields:
+                    if source_field in record and record[source_field]:
+                        if args.debug_mode:
+                            print(f"DEBUG - Merging field: {source_field} -> {target_field}")
+                        record[target_field] = record[source_field]
+                        del record[source_field]
+                        break
+        
+        # Apply ignores
+        if 'ignore' in field_mappings:
+            for field in field_mappings['ignore']:
+                if field in record:
+                    if args.debug_mode:
+                        print(f"DEBUG - Ignoring field: {field}")
+                    del record[field]
+        
+        # Apply conditional mappings
+        if 'conditional' in field_mappings:
+            for condition_map in field_mappings['conditional']:
+                condition = condition_map.get('condition', {})
+                condition_field = condition.get('field')
+                condition_value = condition.get('value')
+                
+                if condition_field and condition_field in record and str(record[condition_field]) == str(condition_value):
+                    if args.debug_mode:
+                        print(f"DEBUG - Applying conditional mapping for {condition_field}={condition_value}")
+                    
+                    # Apply conditional renames
+                    if 'rename' in condition_map:
+                        for old_field, new_field in condition_map['rename'].items():
+                            if old_field in record:
+                                if args.debug_mode:
+                                    print(f"DEBUG - Conditional rename: {old_field} -> {new_field}")
+                                record[new_field] = record[old_field]
+                                del record[old_field]
+                    
+                    # Apply conditional merges
+                    if 'merge' in condition_map:
+                        for target_field, source_fields in condition_map['merge'].items():
+                            for source_field in source_fields:
+                                if source_field in record and record[source_field]:
+                                    if args.debug_mode:
+                                        print(f"DEBUG - Conditional merge: {source_field} -> {target_field}")
+                                    record[target_field] = record[source_field]
+                                    del record[source_field]
+                                    break
+                    
+                    # Apply conditional ignores
+                    if 'ignore' in condition_map:
+                        for field in condition_map['ignore']:
+                            if field in record:
+                                if args.debug_mode:
+                                    print(f"DEBUG - Conditional ignore: {field}")
+                                del record[field]
     
+    # Keep all fields, including RecordType
     return record
 
 def detect_file_type(header):
@@ -759,6 +838,60 @@ for path in args.paths:
                     for field in ip_fields:
                         if field != 'ClientIP' and field in record:
                             del record[field]
+                
+                # Apply field mappings if provided
+                if args.field_mapping_file and field_mappings:
+                    # Apply simple renames
+                    if 'rename' in field_mappings:
+                        for old_field, new_field in field_mappings['rename'].items():
+                            if old_field in record:
+                                record[new_field] = record[old_field]
+                                del record[old_field]
+                    
+                    # Apply merges
+                    if 'merge' in field_mappings:
+                        for target_field, source_fields in field_mappings['merge'].items():
+                            for source_field in source_fields:
+                                if source_field in record and record[source_field]:
+                                    record[target_field] = record[source_field]
+                                    del record[source_field]
+                                    break
+                    
+                    # Apply ignores
+                    if 'ignore' in field_mappings:
+                        for field in field_mappings['ignore']:
+                            if field in record:
+                                del record[field]
+                    
+                    # Apply conditional mappings
+                    if 'conditional' in field_mappings:
+                        for condition_map in field_mappings['conditional']:
+                            condition = condition_map.get('condition', {})
+                            condition_field = condition.get('field')
+                            condition_value = condition.get('value')
+                            
+                            if condition_field and condition_field in record and str(record[condition_field]) == str(condition_value):
+                                # Apply conditional renames
+                                if 'rename' in condition_map:
+                                    for old_field, new_field in condition_map['rename'].items():
+                                        if old_field in record:
+                                            record[new_field] = record[old_field]
+                                            del record[old_field]
+                                
+                                # Apply conditional merges
+                                if 'merge' in condition_map:
+                                    for target_field, source_fields in condition_map['merge'].items():
+                                        for source_field in source_fields:
+                                            if source_field in record and record[source_field]:
+                                                record[target_field] = record[source_field]
+                                                del record[source_field]
+                                                break
+                                
+                                # Apply conditional ignores
+                                if 'ignore' in condition_map:
+                                    for field in condition_map['ignore']:
+                                        if field in record:
+                                            del record[field]
                 
                 return record
             
